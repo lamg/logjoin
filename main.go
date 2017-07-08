@@ -5,8 +5,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/hpcloud/tail"
+	"io"
 	"log"
+	"os"
+	"strconv"
 	"unicode"
 )
 
@@ -30,7 +34,7 @@ func main() {
 }
 
 func logLns(l, d chan *tail.Line, o string) (e error) {
-	var oc chan<- string
+	var oc <-chan string
 	oc = joinLns(l, d)
 	var f io.Writer
 	f, e = os.Create(o)
@@ -40,6 +44,11 @@ func logLns(l, d chan *tail.Line, o string) (e error) {
 		_, e = f.Write([]byte(s))
 	}
 	return
+}
+
+type DLn struct {
+	IP, URL string
+	Dwn     int
 }
 
 func joinLns(l, d chan *tail.Line) (o chan string) {
@@ -56,16 +65,16 @@ func joinLns(l, d chan *tail.Line) (o chan string) {
 		var lr *LLn
 		var e error
 		lr, e = parseLogins(ll.Text)
-		if e == nil && lr.Login {
+		if e == nil && lr.Action == "USERLOGIN" {
 			lgi[lr.IP] = lr
-		} else if e == nil && lr.Logout {
-			delete(lgi[lr.IP])
+		} else if e == nil && lr.Action == "DISCONNECT" {
+			delete(lgi, lr.IP)
 		}
 		// { login info updated ≡ e = nil }
 		var dr *DLn
 		var ok bool
 		dr, e = parseDownloads(dl.Text)
-		if _, ok = lgi[dr.IP]; e == nil && ok {
+		if e == nil && lgi[dr.IP] != nil {
 			// { user of dr founded }
 			var s string
 			s = toString(dr, lgi[dr.IP])
@@ -79,9 +88,8 @@ type LLn struct {
 	Action, IP, User string
 }
 
-//TODO
 // { l has format:
-//  log = month day time host pid zone action user cs ip.
+//  line = month day time host pid zone action user cs ip.
 //  month = word.
 //  day = number.
 //  time = number colon number colon number
@@ -91,6 +99,7 @@ type LLn struct {
 //  action = word [word] colon.
 //  user = word comma comma.
 //  ip = number dot number dot number dot number.
+// }
 func parseLogins(l string) (r *LLn, e error) {
 	var i int
 	i = 0
@@ -106,7 +115,7 @@ func parseLogins(l string) (r *LLn, e error) {
 		i, e = skipNumber(l, i)
 	}
 	if e == nil {
-		i, e = skipChar(l, i, ":")
+		i, e = skipChar(l, i, ':')
 	}
 	if e == nil {
 		i, e = skipNumber(l, i)
@@ -152,16 +161,15 @@ func parseLogins(l string) (r *LLn, e error) {
 	// { zone skipped ≡ e = nil }
 	var k int
 	if e == nil {
-		k, e = getAction(l, i)
+		r = new(LLn)
+		r.Action, k, e = getAction(l, i)
 	}
 	if e == nil {
-		r = &LLn{Action: l[i:k]}
 		i = k
-		k, e = getWord(l, i)
+		r.User, k, e = getWord(l, i)
 	}
 	// { got user ≡ e = nil }
 	if e == nil {
-		r.User = l[i:k]
 		i = k
 		k, e = skipChar(l, i, ',')
 	}
@@ -172,33 +180,86 @@ func parseLogins(l string) (r *LLn, e error) {
 	// { ", ," skipped ≡ e = nil }
 	if e == nil {
 		i = k
-		k, e = getIP(l, i)
+		r.IP, k, e = getIP(l, i)
 	}
 	// { got IP ≡ e = nil }
-	if e == nil {
-		r.IP = s[i:k]
+	return
+}
+
+func getWord(s string, i int) (r string, k int, e error) {
+	k = i
+	for k != len(s) && (unicode.IsLetter(rune(s[k])) || s[k] == '-' || s[k] == '_') {
+		k = k + 1
+	}
+	if k != len(s) && i != k {
+		r = s[i:k]
+		k = skipSpaces(s, k)
+	} else {
+		e = fmt.Errorf("Error in %s at %d", s, k)
 	}
 	return
 }
 
-func getAction(s string, i int) (k int, e error) {
-	k, e = skipWord(s, i)
+func getIP(s string, i int) (r string, k int, e error) {
+	k, e = skipDigits(s, i)
+	if e == nil {
+		r = s[i:k]
+		i = k
+		k, e = skipChar(s, i, '.')
+	}
+	if e == nil {
+		r += "."
+		i = k
+		k, e = skipDigits(s, i)
+	}
+	if e == nil {
+		r += s[i:k]
+		i = k
+		k, e = skipChar(s, i, '.')
+	}
+	if e == nil {
+		r += "."
+		i = k
+		k, e = skipDigits(s, i)
+	}
+	if e == nil {
+		r += s[i:k]
+		i = k
+		k, e = skipChar(s, i, '.')
+	}
+	if e == nil {
+		r += "."
+		i = k
+		k, e = skipDigits(s, i)
+	}
+	if e == nil {
+		r += s[i:k]
+		k = skipSpaces(s, k)
+	}
+	return
+}
+
+func getAction(s string, i int) (r string, k int, e error) {
+	r, k, e = getWord(s, i)
 	if e == nil {
 		i = k
 		k, e = skipChar(s, i, ':')
 	}
 	if e != nil {
-		i = k
-		k, e = skipWord(s, i)
+		i = skipSpaces(s, k)
+		var r0 string
+		r0, k, e = getWord(s, i)
 		if e == nil {
-			k, e = skipChar(s, i, ':')
+			r = r + r0
+			k, e = skipChar(s, k, ':')
 		}
 	}
 	return
 }
 
 func skipChar(s string, i int, c rune) (r int, e error) {
-	if s[i] == c {
+	r = i
+	if rune(s[i]) == c {
 		r = i + 1
 	} else {
 		e = fmt.Errorf("Expected char %c at %d in %s", c, i, s)
@@ -207,13 +268,21 @@ func skipChar(s string, i int, c rune) (r int, e error) {
 	return
 }
 
-func skipNumber(l string, i int) (r int, e error) {
-	for i != len(s) && unicode.IsDigit(i) {
-		i = i + 1
+func skipDigits(s string, i int) (r int, e error) {
+	r = i
+	for r != len(s) && unicode.IsDigit(rune(s[r])) {
+		r = r + 1
 	}
-	r = skipSpaces(s, i)
 	if r == i {
-		e = fmt.Errorf("Error in %s at %d", l, i)
+		e = fmt.Errorf("Error in %s at %d", s, i)
+	}
+	return
+}
+
+func skipNumber(s string, i int) (r int, e error) {
+	r, e = skipDigits(s, i)
+	if e == nil {
+		r = skipSpaces(s, r)
 	}
 	return
 }
@@ -223,7 +292,7 @@ func skipNumber(l string, i int) (r int, e error) {
 //   space seq) }
 func skipWord(s string, i int) (r int, e error) {
 	r = i
-	for r != len(s) && (unicode.IsLetter(s[i]) || s[r] == '-' || s[r] == '_') {
+	for r != len(s) && (unicode.IsLetter(rune(s[r])) || s[r] == '-' || s[r] == '_') {
 		r = r + 1
 	}
 	if r == i {
@@ -235,18 +304,70 @@ func skipWord(s string, i int) (r int, e error) {
 }
 
 func skipSpaces(s string, i int) (r int) {
-	for i != len(s) && unicode.IsSpace(s[i]) {
+	for i != len(s) && unicode.IsSpace(rune(s[i])) {
 		i = i + 1
 	}
 	r = i
 	return
 }
 
+// { l has format:
+//   line = number '.' number number ip word '/' number size
+//      word url '-' word '/-' word '/' word.
+// }
 func parseDownloads(l string) (r *DLn, e error) {
+	var i int
+	i = 0
+	i, e = skipNumber(l, i)
+	if e == nil {
+		i, e = skipChar(l, i, '.')
+	}
+	if e == nil {
+		i, e = skipNumber(l, i)
+	}
+	if e == nil {
+		i, e = skipNumber(l, i)
+	}
+	if e == nil {
+		r = new(DLn)
+		r.IP, i, e = getIP(l, i)
+	}
+	if e == nil {
+		i = skipSpaces(l, i)
+		i, e = skipWord(l, i)
+	}
+	if e == nil {
+		i, e = skipChar(l, i, '/')
+	}
+	if e == nil {
+		i, e = skipNumber(l, i)
+	}
+	var k int
+	if e == nil {
+		k, e = skipDigits(l, i)
+	}
+	if e == nil {
+		var sz string
+		sz = l[i:k]
+		r.Dwn, e = strconv.Atoi(sz)
+		k = skipSpaces(l, k)
+	}
+	if e == nil {
+		i = k
+		i, e = skipWord(l, i)
+	}
+	if e == nil {
+		for i != len(l) && !unicode.IsSpace(rune(l[i])) {
+			// { r.URL as a sequence of non-blank characters }
+			r.URL, i = r.URL+string(l[i]), i+1
+		}
+		// { nothing more to parse }
+	}
 
 	return
 }
 
 func toString(d *DLn, l *LLn) (r string) {
+	//TODO
 	return
 }
