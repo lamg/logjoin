@@ -4,13 +4,14 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
-	"github.com/hpcloud/tail"
 	"io"
 	"log"
 	"os"
 	"strconv"
+	"time"
 	"unicode"
 )
 
@@ -19,73 +20,185 @@ func main() {
 	flag.StringVar(&lgn, "f", "", "Logins log")
 	flag.StringVar(&dwn, "d", "", "Downloads log")
 	flag.StringVar(&out, "o", "", "Output log")
-	var lgiTl, dwnTl *tail.Tail
+	flag.Parse()
+	var lgR, dwR io.Reader
 	var e error
-	lgiTl, e = tail.TailFile(lgn, tail.Config{Follow: true})
+	lgR, e = os.Open(lgn)
 	if e == nil {
-		dwnTl, e = tail.TailFile(dwn, tail.Config{Follow: true})
+		dwR, e = os.Open(dwn)
+	}
+	var otW io.Writer
+	if e == nil {
+		otW, e = os.Create(out)
 	}
 	if e == nil {
-		e = logLns(lgiTl.Lines, dwnTl.Lines, out)
+		e = joinLns(lgR, dwR, otW)
 	}
 	if e != nil {
 		log.Fatal(e.Error())
 	}
 }
 
-func logLns(l, d chan *tail.Line, o string) (e error) {
-	var oc <-chan string
-	oc = joinLns(l, d)
-	var f io.Writer
-	f, e = os.Create(o)
-	for e == nil {
-		var s string
-		s = <-oc
-		_, e = f.Write([]byte(s))
+type DLn struct {
+	IP, URL string
+	Dwn     int
+	Time    time.Time
+}
+
+type Session struct {
+	user       string
+	start, end time.Time
+	dwnls      []*DLn
+	closed     bool
+}
+
+func (s *Session) Belongs(t time.Time) (r bool) {
+	r = s.start.Before(t) && s.end.After(t)
+	return
+}
+
+func (s *Session) AppendDwn(d *DLn) {
+	s.dwnls = append(s.dwnls, d)
+}
+
+// { l contains lines with users associated to IP addresses
+//   and d contains lines with IP addresses associated to
+//   download requests }
+// { o contains lines with users associated to IP ddresses
+//   and download requests, in Common Log Format }
+func joinLns(l, d io.Reader, o io.Writer) (e error) {
+	var lgi map[string][]*Session
+	lgi = make(map[string][]*Session)
+	e = delimSessions(l, lgi)
+	// { sessions delimited }
+	if e == nil {
+		e = fillSessions(d, lgi)
+	}
+	// { sessions filled ≡ e = nil }
+	if e == nil {
+		e = writeDwns(o, lgi)
+	}
+	// { downloads per user written ≡ e = nil }
+	return
+}
+
+func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
+	var ls *bufio.Scanner
+	ls = bufio.NewScanner(l)
+	for ls.Scan() {
+		var ln string
+		ln = ls.Text()
+		var lln *LLn
+		lln, e = parseLogins(ln)
+		if e == nil {
+			var ss []*Session
+			var ns *Session
+			var ok bool
+			ss, ok = lgi[lln.IP]
+			if lln.IsLogin() {
+				if !ok {
+					lgi[lln.IP] = make([]*Session, 0)
+				}
+				// { lgi[lln.IP] is initialized }
+				ns = &Session{
+					start: lln.Time,
+					user:  lln.User,
+				}
+				lgi[lln.IP] = append(lgi[lln.IP], ns)
+				// the previous affects the slice inside the map?
+				// {   }
+			} else if lln.IsLogout() {
+				if ok {
+					var i int
+					for i != len(ss) && !(ss[i].user == lln.User &&
+						!ss[i].closed) {
+						i++
+					}
+					// { ns is last opened session of lln.User ≡
+					//   foundSession}
+					if i != len(ss) {
+						ss[i].end = lln.Time
+						ss[i].closed = true
+					}
+					// { closed lln.User's session ≡ foundSession }
+				}
+			}
+		}
+		// { sessionOpened ∨ sessionClosed ≡ e = nil }
+	}
+	e = ls.Err()
+	if e == bufio.ErrTooLong {
+		e = nil
 	}
 	return
 }
 
-type DLn struct {
-	IP, URL string
-	Dwn     int
-}
-
-func joinLns(l, d chan *tail.Line) (o chan string) {
-	// { l contains lines with users associated to IP addresses
-	//   and d contains lines with IP addresses associated to
-	//   download requests }
-	// { o contains lines with users associated to IP addresses
-	//   and download requests }
-	var lgi map[string]*LLn
-	lgi = make(map[string]*LLn)
-	for {
-		var ll, dl *tail.Line
-		ll, dl = <-l, <-d
-		var lr *LLn
-		var e error
-		lr, e = parseLogins(ll.Text)
-		if e == nil && lr.Action == "USERLOGIN" {
-			lgi[lr.IP] = lr
-		} else if e == nil && lr.Action == "DISCONNECT" {
-			delete(lgi, lr.IP)
-		}
-		// { login info updated ≡ e = nil }
-		var dr *DLn
+func fillSessions(d io.Reader, lgi map[string][]*Session) (e error) {
+	var ds *bufio.Scanner
+	ds = bufio.NewScanner(d)
+	for ds.Scan() {
+		var ln string
+		ln = ds.Text()
+		var dln *DLn
+		dln, _ = parseDownloads(ln)
+		var s []*Session
 		var ok bool
-		dr, e = parseDownloads(dl.Text)
-		if e == nil && lgi[dr.IP] != nil {
-			// { user of dr founded }
-			var s string
-			s = toString(dr, lgi[dr.IP])
-			o <- s
-			// { line created and sent to channel o }
+		s, ok = lgi[dln.IP]
+		if ok {
+			var i int
+			i = 0
+			for i != len(s) && !s[i].Belongs(dln.Time) {
+				i = i + 1
+			}
+			if i != len(s) {
+				s[i].AppendDwn(dln)
+			}
 		}
 	}
+	e = ds.Err()
+	if e == bufio.ErrTooLong {
+		e = nil
+	}
+	return
+}
+
+func writeDwns(o io.Writer, lgi map[string][]*Session) (e error) {
+	for _, v := range lgi {
+		for _, j := range v {
+			var bs []byte
+			bs = sessionToBytes(j)
+			_, e = o.Write(bs)
+		}
+	}
+	return
+}
+
+func sessionToBytes(j *Session) (bs []byte) {
+	bs = make([]byte, 0)
+	for _, k := range j.dwnls {
+		var s string
+		s = fmt.Sprintf(
+			"%s - %s [%s] \"GET HTTP/1.0\" 200 %d\n",
+			k.IP, j.user, k.Time.String(), k.Dwn,
+		)
+		bs = append(bs, []byte(s)...)
+	}
+	return
 }
 
 type LLn struct {
 	Action, IP, User string
+	Time             time.Time
+}
+
+func (l *LLn) IsLogin() (b bool) {
+	b = l.Action == "USERLOGIN"
+	return
+}
+
+func (l *LLn) IsLogout() (b bool) {
+	b = l.Action == "DISCONNECT"
+	return
 }
 
 // { l has format:
@@ -101,8 +214,11 @@ type LLn struct {
 //  ip = number dot number dot number dot number.
 // }
 func parseLogins(l string) (r *LLn, e error) {
+	//TODO parse time instead ignoring it
+	//what is the format of "Jun 27 21:04:55"?
+	//TODO Common Log Format
 	var i int
-	i = 0
+	i, r = 0, new(LLn)
 	if e == nil {
 		i, e = skipWord(l, i)
 	}
@@ -124,10 +240,15 @@ func parseLogins(l string) (r *LLn, e error) {
 		i, e = skipChar(l, i, ':')
 	}
 	if e == nil {
-		i, e = skipNumber(l, i)
+		i, e = skipDigits(l, i)
 	}
+	if e == nil {
+		r.Time, e = time.Parse(time.Stamp, l[:i])
+	}
+	// TODO parse time
 	// { time skipped ≡ e = nil }
 	if e == nil {
+		i = skipSpaces(l, i)
 		i, e = skipWord(l, i)
 	}
 	// { host skipped ≡ e = nil }
@@ -159,28 +280,22 @@ func parseLogins(l string) (r *LLn, e error) {
 		i, e = skipChar(l, i, '-')
 	}
 	// { zone skipped ≡ e = nil }
-	var k int
 	if e == nil {
-		r = new(LLn)
-		r.Action, k, e = getAction(l, i)
+		r.Action, i, e = getAction(l, i)
 	}
 	if e == nil {
-		i = k
-		r.User, k, e = getWord(l, i)
+		r.User, i, e = getWord(l, i)
 	}
 	// { got user ≡ e = nil }
 	if e == nil {
-		i = k
-		k, e = skipChar(l, i, ',')
+		i, e = skipChar(l, i, ',')
 	}
 	if e == nil {
-		i = k
-		k, e = skipChar(l, i, ',')
+		i, e = skipChar(l, i, ',')
 	}
 	// { ", ," skipped ≡ e = nil }
 	if e == nil {
-		i = k
-		r.IP, k, e = getIP(l, i)
+		r.IP, i, e = getIP(l, i)
 	}
 	// { got IP ≡ e = nil }
 	return
@@ -311,14 +426,31 @@ func skipSpaces(s string, i int) (r int) {
 	return
 }
 
+func getTime(l string, i int) (t time.Time, k int, e error) {
+	var r int64
+	k, e = skipDigits(l, i)
+	if e == nil {
+		r, e = strconv.ParseInt(l[i:k], 10, 64)
+	}
+	if e == nil {
+		t = time.Unix(r, 0)
+		t = t.AddDate(-t.Year(), 0, 0)
+	}
+
+	// { year set to 0 since time stamps in downloads have
+	//   no year }
+	return
+}
+
 // { l has format:
 //   line = number '.' number number ip word '/' number size
 //      word url '-' word '/-' word '/' word.
 // }
 func parseDownloads(l string) (r *DLn, e error) {
 	var i int
+	r = new(DLn)
 	i = 0
-	i, e = skipNumber(l, i)
+	r.Time, i, e = getTime(l, i)
 	if e == nil {
 		i, e = skipChar(l, i, '.')
 	}
@@ -329,7 +461,7 @@ func parseDownloads(l string) (r *DLn, e error) {
 		i, e = skipNumber(l, i)
 	}
 	if e == nil {
-		r = new(DLn)
+
 		r.IP, i, e = getIP(l, i)
 	}
 	if e == nil {
@@ -363,11 +495,12 @@ func parseDownloads(l string) (r *DLn, e error) {
 		}
 		// { nothing more to parse }
 	}
-
 	return
 }
 
 func toString(d *DLn, l *LLn) (r string) {
 	//TODO
+	r = fmt.Sprintf("%s %s %s %d %s", time.Now().String(), l.User,
+		l.IP, d.Dwn, d.URL)
 	return
 }
