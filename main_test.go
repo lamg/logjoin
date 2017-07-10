@@ -62,9 +62,9 @@ func TestParseDownloads0(t *testing.T) {
 		}
 	}
 	require.NoError(t, e, "i: %d", i)
-	for _, j := range ds {
+	/*for _, j := range ds {
 		t.Logf("ip: %s time: %s", j.IP, j.Time.String())
-	}
+	}*/
 }
 
 func TestSessionToBytes(t *testing.T) {
@@ -96,8 +96,8 @@ func TestSessionToBytes(t *testing.T) {
 	var bs []byte
 	bs = sessionToBytes(ns)
 	var exLns []string
-	exLns = []string{"10.2.23.1 - lamg [2006-01-02 15:04:35 -0400 CDT] \"GET HTTP/1.0\" 200 4020",
-		"10.2.23.1 - lamg [2006-01-02 15:05:05 -0400 CDT] \"GET HTTP/1.0\" 200 2030",
+	exLns = []string{"10.2.23.1 - lamg [2006-01-02T15:04:35-04:00] \"GET https://google.com.cu HTTP/1.0\" 200 4020",
+		"10.2.23.1 - lamg [2006-01-02T15:05:05-04:00] \"GET https://en.wikipedia.com HTTP/1.0\" 200 2030",
 	}
 	var br io.Reader
 	br = bytes.NewReader(bs)
@@ -122,13 +122,13 @@ func TestDelimSessions(t *testing.T) {
 	e = delimSessions(bf, lgi)
 	require.NoError(t, e)
 	require.True(t, len(lgi) > 0)
-	for k, v := range lgi {
+	/*for k, v := range lgi {
 		t.Log(k)
 		for _, j := range v {
 			t.Logf("user: %s  start: %s end: %s", j.user, j.start,
 				j.end)
 		}
-	}
+	}*/
 }
 
 func TestFillSessions(t *testing.T) {
@@ -170,7 +170,6 @@ func TestJoinLns(t *testing.T) {
 	t.Log(ow.String())
 }
 
-//TODO include year in l's lines
 var (
 	l = `Jul 06 06:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
 Jul 06 21:06:13 proxy-profesores logportalauth[48372]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8
