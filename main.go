@@ -17,7 +17,7 @@ import (
 
 func main() {
 	var lgn, dwn, out string
-	flag.StringVar(&lgn, "f", "", "Logins log")
+	flag.StringVar(&lgn, "l", "", "Logins log")
 	flag.StringVar(&dwn, "d", "", "Downloads log")
 	flag.StringVar(&out, "o", "", "Output log")
 	flag.Parse()
@@ -58,7 +58,14 @@ func (s *Session) Belongs(t time.Time) (r bool) {
 }
 
 func (s *Session) AppendDwn(d *DLn) {
-	s.dwnls = append(s.dwnls, d)
+	var i int
+	i = 0
+	for i != len(s.dwnls) && !s.dwnls[i].Time.Equal(d.Time) {
+		i = i + 1
+	}
+	if i == len(s.dwnls) {
+		s.dwnls = append(s.dwnls, d)
+	}
 }
 
 // { l contains lines with users associated to IP addresses
@@ -104,14 +111,21 @@ func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
 					start: lln.Time,
 					user:  lln.User,
 				}
+				if len(lgi[lln.IP]) != 0 && !lgi[lln.IP][len(lgi[lln.IP])-1].closed {
+					// { a LOGIN from the IP of an unfinished session
+					//   is made }
+					var drt time.Duration
+					drt, _ = time.ParseDuration("-1ms")
+					lgi[lln.IP][len(lgi[lln.IP])-1].end = ns.start.Add(drt)
+					lgi[lln.IP][len(lgi[lln.IP])-1].closed = true
+					// { finished previous session }
+				}
 				lgi[lln.IP] = append(lgi[lln.IP], ns)
-				// the previous affects the slice inside the map?
-				// {   }
 			} else if lln.IsLogout() {
 				if ok {
 					var i int
-					for i != len(ss) && !(ss[i].user == lln.User &&
-						!ss[i].closed) {
+					for i != len(ss) && (ss[i].user != lln.User ||
+						ss[i].closed) {
 						i++
 					}
 					// { ns is last opened session of lln.User ≡
@@ -214,9 +228,6 @@ func (l *LLn) IsLogout() (b bool) {
 //  ip = number dot number dot number dot number.
 // }
 func parseLogins(l string) (r *LLn, e error) {
-	//TODO parse time instead ignoring it
-	//what is the format of "Jun 27 21:04:55"?
-	//TODO Common Log Format
 	var i int
 	i, r = 0, new(LLn)
 	if e == nil {
@@ -243,11 +254,12 @@ func parseLogins(l string) (r *LLn, e error) {
 		i, e = skipDigits(l, i)
 	}
 	if e == nil {
-		r.Time, e = time.Parse(time.Stamp, l[:i])
+		r.Time, e = time.ParseInLocation(time.Stamp, l[:i],
+			time.Now().Location())
 	}
-	// TODO parse time
 	// { time skipped ≡ e = nil }
 	if e == nil {
+		r.Time = r.Time.AddDate(time.Now().Year(), 0, 0)
 		i = skipSpaces(l, i)
 		i, e = skipWord(l, i)
 	}
@@ -433,12 +445,20 @@ func getTime(l string, i int) (t time.Time, k int, e error) {
 		r, e = strconv.ParseInt(l[i:k], 10, 64)
 	}
 	if e == nil {
-		t = time.Unix(r, 0)
-		t = t.AddDate(-t.Year(), 0, 0)
+		k, e = skipChar(l, k, '.')
 	}
-
-	// { year set to 0 since time stamps in downloads have
-	//   no year }
+	if e == nil {
+		i = k
+		k, e = skipDigits(l, i)
+	}
+	var ms int64
+	if e == nil {
+		ms, e = strconv.ParseInt(l[i:k], 10, 64)
+	}
+	if e == nil {
+		k = skipSpaces(l, k)
+		t = time.Unix(r, ms*1000000)
+	}
 	return
 }
 
@@ -451,12 +471,6 @@ func parseDownloads(l string) (r *DLn, e error) {
 	r = new(DLn)
 	i = 0
 	r.Time, i, e = getTime(l, i)
-	if e == nil {
-		i, e = skipChar(l, i, '.')
-	}
-	if e == nil {
-		i, e = skipNumber(l, i)
-	}
 	if e == nil {
 		i, e = skipNumber(l, i)
 	}

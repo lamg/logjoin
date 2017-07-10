@@ -15,8 +15,10 @@ func TestParseLogins(t *testing.T) {
 	var lln *LLn
 	var e error
 	var tm time.Time
-	tm, e = time.Parse(time.Stamp, "Jun 27 21:05:41")
+	tm, e = time.ParseInLocation(time.Stamp, "Jun 27 21:05:41",
+		time.Now().Location())
 	require.NoError(t, e)
+	tm = tm.AddDate(time.Now().Year(), 0, 0)
 	s = "Jun 27 21:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8"
 	lln, e = parseLogins(s)
 	require.NoError(t, e)
@@ -60,6 +62,9 @@ func TestParseDownloads0(t *testing.T) {
 		}
 	}
 	require.NoError(t, e, "i: %d", i)
+	for _, j := range ds {
+		t.Logf("ip: %s time: %s", j.IP, j.Time.String())
+	}
 }
 
 func TestSessionToBytes(t *testing.T) {
@@ -117,6 +122,13 @@ func TestDelimSessions(t *testing.T) {
 	e = delimSessions(bf, lgi)
 	require.NoError(t, e)
 	require.True(t, len(lgi) > 0)
+	for k, v := range lgi {
+		t.Log(k)
+		for _, j := range v {
+			t.Logf("user: %s  start: %s end: %s", j.user, j.start,
+				j.end)
+		}
+	}
 }
 
 func TestFillSessions(t *testing.T) {
@@ -140,6 +152,9 @@ func TestFillSessions(t *testing.T) {
 		ss.end.String(),
 		ss.dwnls,
 	)
+	/*for _, j := range ss.dwnls {
+		t.Logf("%s %s", j.IP, j.Time.String())
+	}*/
 }
 
 func TestJoinLns(t *testing.T) {
@@ -152,16 +167,16 @@ func TestJoinLns(t *testing.T) {
 	e = joinLns(lr, dr, ow)
 	require.NoError(t, e)
 	require.True(t, ow.Len() > 0)
+	t.Log(ow.String())
 }
 
 //TODO include year in l's lines
 var (
-	l = `Jun 27 21:04:55 proxy-profesores logportalauth[8212]: Zone: proxy_profes - Reconfiguring captive portal(Proxy_Profes).
-Jul 06 06:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
+	l = `Jul 06 06:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
 Jul 06 21:06:13 proxy-profesores logportalauth[48372]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8
-Jun 27 21:09:38 proxy-profesores logportalauth[25822]: Zone: proxy_profes - Reconfiguring captive portal(Proxy_Profes).
-Jun 27 21:09:57 proxy-profesores logportalauth[47811]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
-Jun 27 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8`
+Jul 06 21:09:38 proxy-profesores logportalauth[25822]: Zone: proxy_profes - Reconfiguring captive portal(Proxy_Profes).
+Jul 06 21:09:57 proxy-profesores logportalauth[47811]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
+Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8`
 	d = `1499336852.856      1 212.237.54.71 TAG_NONE/400 4007 GET / - HIER_NONE/- text/html
 1499344036.349      0 10.2.9.8 TAG_NONE/400 4004 GET / - HIER_NONE/- text/html
 1499344036.376      1 10.2.9.8 TCP_DENIED/403 4395 GET http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png - HIER_NONE/- text/html
