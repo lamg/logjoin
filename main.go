@@ -21,20 +21,24 @@ func main() {
 	flag.StringVar(&dwn, "d", "", "Downloads log")
 	flag.StringVar(&out, "o", "", "Output log")
 	flag.Parse()
-	var lgR, dwR io.Reader
+	var lgR, dwR io.ReadCloser
 	var e error
 	lgR, e = os.Open(lgn)
 	if e == nil {
 		dwR, e = os.Open(dwn)
 	}
-	var otW io.Writer
+	var otW io.WriteCloser
 	if e == nil {
 		otW, e = os.Create(out)
 	}
 	if e == nil {
 		e = joinLns(lgR, dwR, otW)
 	}
-	if e != nil {
+	if e == nil {
+		lgR.Close()
+		dwR.Close()
+		otW.Close()
+	} else {
 		log.Fatal(e.Error())
 	}
 }
@@ -98,45 +102,7 @@ func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
 		var lln *LLn
 		lln, e = parseLogins(ln)
 		if e == nil {
-			var ss []*Session
-			var ns *Session
-			var ok bool
-			ss, ok = lgi[lln.IP]
-			if lln.IsLogin() {
-				if !ok {
-					lgi[lln.IP] = make([]*Session, 0)
-				}
-				// { lgi[lln.IP] is initialized }
-				ns = &Session{
-					start: lln.Time,
-					user:  lln.User,
-				}
-				if len(lgi[lln.IP]) != 0 && !lgi[lln.IP][len(lgi[lln.IP])-1].closed {
-					// { a LOGIN from the IP of an unfinished session
-					//   is made }
-					var drt time.Duration
-					drt, _ = time.ParseDuration("-1ms")
-					lgi[lln.IP][len(lgi[lln.IP])-1].end = ns.start.Add(drt)
-					lgi[lln.IP][len(lgi[lln.IP])-1].closed = true
-					// { finished previous session }
-				}
-				lgi[lln.IP] = append(lgi[lln.IP], ns)
-			} else if lln.IsLogout() {
-				if ok {
-					var i int
-					for i != len(ss) && (ss[i].user != lln.User ||
-						ss[i].closed) {
-						i++
-					}
-					// { ns is last opened session of lln.User ≡
-					//   foundSession}
-					if i != len(ss) {
-						ss[i].end = lln.Time
-						ss[i].closed = true
-					}
-					// { closed lln.User's session ≡ foundSession }
-				}
-			}
+			procLog(lln, lgi)
 		}
 		// { sessionOpened ∨ sessionClosed ≡ e = nil }
 	}
@@ -145,6 +111,48 @@ func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
 		e = nil
 	}
 	return
+}
+
+func procLog(lln *LLn, lgi map[string][]*Session) {
+	var ss []*Session
+	var ns *Session
+	var ok bool
+	ss, ok = lgi[lln.IP]
+	if lln.IsLogin() {
+		if !ok {
+			lgi[lln.IP] = make([]*Session, 0)
+		}
+		// { lgi[lln.IP] is initialized }
+		ns = &Session{
+			start: lln.Time,
+			user:  lln.User,
+		}
+		if len(lgi[lln.IP]) != 0 && !lgi[lln.IP][len(lgi[lln.IP])-1].closed {
+			// { a LOGIN from the IP of an unfinished session
+			//   is made }
+			var drt time.Duration
+			drt, _ = time.ParseDuration("-1ms")
+			lgi[lln.IP][len(lgi[lln.IP])-1].end = ns.start.Add(drt)
+			lgi[lln.IP][len(lgi[lln.IP])-1].closed = true
+			// { finished previous session }
+		}
+		lgi[lln.IP] = append(lgi[lln.IP], ns)
+		// { opened new session and closed last session if not }
+	} else if lln.IsLogout() {
+		if ok {
+			var i int
+			for i != len(ss) && (ss[i].user != lln.User ||
+				ss[i].closed) {
+				i++
+			}
+			// { ns is last opened session of lln.User ≡ foundSession}
+			if i != len(ss) {
+				ss[i].end = lln.Time
+				ss[i].closed = true
+			}
+			// { closed lln.User's opened session ≡ foundSession }
+		}
+	}
 }
 
 func fillSessions(d io.Reader, lgi map[string][]*Session) (e error) {
