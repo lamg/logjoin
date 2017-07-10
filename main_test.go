@@ -96,8 +96,8 @@ func TestSessionToBytes(t *testing.T) {
 	var bs []byte
 	bs = sessionToBytes(ns)
 	var exLns []string
-	exLns = []string{"10.2.23.1 - lamg [2006-01-02T15:04:35-04:00] \"GET https://google.com.cu HTTP/1.0\" 200 4020",
-		"10.2.23.1 - lamg [2006-01-02T15:05:05-04:00] \"GET https://en.wikipedia.com HTTP/1.0\" 200 2030",
+	exLns = []string{"10.2.23.1 - lamg [Mon Jan 02 15:04:35 -0400 2006] \"GET https://google.com.cu HTTP/1.0\" 200 4020",
+		"10.2.23.1 - lamg [Mon Jan 02 15:05:05 -0400 2006] \"GET https://en.wikipedia.com HTTP/1.0\" 200 2030",
 	}
 	var br io.Reader
 	br = bytes.NewReader(bs)

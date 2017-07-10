@@ -193,7 +193,7 @@ func sessionToBytes(j *Session) (bs []byte) {
 		var s string
 		s = fmt.Sprintf(
 			"%s - %s [%s] \"GET %s HTTP/1.0\" 200 %d\n",
-			k.IP, j.user, k.Time.Format(time.RFC3339), k.URL, k.Dwn,
+			k.IP, j.user, k.Time.Format(time.RubyDate), k.URL, k.Dwn,
 		)
 		bs = append(bs, []byte(s)...)
 	}
