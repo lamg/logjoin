@@ -16,10 +16,14 @@ import (
 )
 
 func main() {
+	//TODO
+	// matar procesos en squid del usuario que hizo DISCONNECT
+	// leer el archivo desde la posicion en que se quedo
+	// anteriormente
 	var lgn, dwn, out string
-	flag.StringVar(&lgn, "l", "", "Logins log")
-	flag.StringVar(&dwn, "d", "", "Downloads log")
-	flag.StringVar(&out, "o", "", "Output log")
+	flag.StringVar(&lgn, "l", "", "portalauth.log file path")
+	flag.StringVar(&dwn, "d", "", "access.log file path")
+	flag.StringVar(&out, "o", "", "Output log file path")
 	flag.Parse()
 	var lgR, dwR io.ReadCloser
 	var e error
@@ -32,7 +36,9 @@ func main() {
 		otW, e = os.Create(out)
 	}
 	if e == nil {
-		e = joinLns(lgR, dwR, otW)
+		var jn *Joiner
+		jn = NewJoiner()
+		e = jn.joinLns(lgR, dwR, otW)
 	}
 	if e == nil {
 		lgR.Close()
@@ -41,6 +47,35 @@ func main() {
 	} else {
 		log.Fatal(e.Error())
 	}
+}
+
+type Joiner struct {
+	lgi map[string][]*Session
+}
+
+func NewJoiner() (jn *Joiner) {
+	jn = new(Joiner)
+	jn.lgi = make(map[string][]*Session)
+	return
+}
+
+// { l contains lines with users associated to IP addresses
+//   and d contains lines with IP addresses associated to
+//   download requests }
+// { o contains lines with users associated to IP ddresses
+//   and download requests, in Common Log Format }
+func (jn *Joiner) joinLns(l, d io.Reader, o io.Writer) (e error) {
+	e = delimSessions(l, jn.lgi)
+	// { sessions delimited }
+	if e == nil {
+		e = fillSessions(d, jn.lgi)
+	}
+	// { sessions filled ≡ e = nil }
+	if e == nil {
+		e = writeDwns(o, jn.lgi)
+	}
+	// { downloads per user written ≡ e = nil }
+	return
 }
 
 type DLn struct {
@@ -70,27 +105,6 @@ func (s *Session) AppendDwn(d *DLn) {
 	if i == len(s.dwnls) {
 		s.dwnls = append(s.dwnls, d)
 	}
-}
-
-// { l contains lines with users associated to IP addresses
-//   and d contains lines with IP addresses associated to
-//   download requests }
-// { o contains lines with users associated to IP ddresses
-//   and download requests, in Common Log Format }
-func joinLns(l, d io.Reader, o io.Writer) (e error) {
-	var lgi map[string][]*Session
-	lgi = make(map[string][]*Session)
-	e = delimSessions(l, lgi)
-	// { sessions delimited }
-	if e == nil {
-		e = fillSessions(d, lgi)
-	}
-	// { sessions filled ≡ e = nil }
-	if e == nil {
-		e = writeDwns(o, lgi)
-	}
-	// { downloads per user written ≡ e = nil }
-	return
 }
 
 func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
@@ -483,7 +497,6 @@ func parseDownloads(l string) (r *DLn, e error) {
 		i, e = skipNumber(l, i)
 	}
 	if e == nil {
-
 		r.IP, i, e = getIP(l, i)
 	}
 	if e == nil {
@@ -509,6 +522,7 @@ func parseDownloads(l string) (r *DLn, e error) {
 	if e == nil {
 		i = k
 		i, e = skipWord(l, i)
+		// { got Method }
 	}
 	if e == nil {
 		for i != len(l) && !unicode.IsSpace(rune(l[i])) {
