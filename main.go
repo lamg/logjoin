@@ -4,11 +4,10 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
+	"github.com/hpcloud/tail"
 	"io"
-	"log"
 	"os"
 	"strconv"
 	"time"
@@ -18,208 +17,157 @@ import (
 func main() {
 	//TODO
 	// matar procesos en squid del usuario que hizo DISCONNECT
-	// leer el archivo desde la posicion en que se quedo
-	// anteriormente
+	// sacar las descargas procesadas y las sesiones que ya
+	// no puedan tener mas descargas, para liberar memoria
 	var lgn, dwn, out string
 	flag.StringVar(&lgn, "l", "", "portalauth.log file path")
 	flag.StringVar(&dwn, "d", "", "access.log file path")
 	flag.StringVar(&out, "o", "", "Output log file path")
 	flag.Parse()
-	var lgR, dwR io.ReadCloser
+	var lt, dt *tail.Tail
 	var e error
-	lgR, e = os.Open(lgn)
+	lt, e = tail.TailFile(lgn, tail.Config{Follow: true})
 	if e == nil {
-		dwR, e = os.Open(dwn)
+		dt, e = tail.TailFile(dwn, tail.Config{Follow: true})
 	}
-	var otW io.WriteCloser
+	var o *os.File
 	if e == nil {
-		otW, e = os.Create(out)
-	}
-	if e == nil {
-		var jn *Joiner
-		jn = NewJoiner()
-		e = jn.joinLns(lgR, dwR, otW)
+		o, e = os.Create(out)
 	}
 	if e == nil {
-		lgR.Close()
-		dwR.Close()
-		otW.Close()
-	} else {
-		log.Fatal(e.Error())
+		var ls, ds, oc chan string
+		ls, ds = stringCh(lt.Lines, dt.Lines)
+		go logProc(ls, ds, oc)
+		for {
+			o.Write([]byte(<-oc))
+			o.Sync()
+		}
 	}
 }
 
-type Joiner struct {
-	lgi map[string][]*Session
-}
-
-func NewJoiner() (jn *Joiner) {
-	jn = new(Joiner)
-	jn.lgi = make(map[string][]*Session)
+func stringCh(ll, dl chan *tail.Line) (ls, ds chan string) {
+	ls, ds = make(chan string), make(chan string)
+	go func() {
+		var e, d error
+		for e == nil || d == nil {
+			var s, t *tail.Line
+			s, t = (<-ll), (<-dl)
+			e, d = s.Err, t.Err
+			ls <- s.Text
+			ds <- t.Text
+		}
+	}()
 	return
 }
 
-// { l contains lines with users associated to IP addresses
-//   and d contains lines with IP addresses associated to
-//   download requests }
-// { o contains lines with users associated to IP ddresses
-//   and download requests, in Common Log Format }
-func (jn *Joiner) joinLns(l, d io.Reader, o io.Writer) (e error) {
-	e = delimSessions(l, jn.lgi)
-	// { sessions delimited }
-	if e == nil {
-		e = fillSessions(d, jn.lgi)
+func logProc(ll, dl, out chan string) {
+	var e, d error
+	var sm map[string][]*Session
+	var dm map[string][]*DLn
+	sm, dm = make(map[string][]*Session),
+		make(map[string][]*DLn)
+	for e == nil || d == nil {
+		var lln *LLn
+		lln, e = parseLogin(<-ll)
+		if e == nil {
+			procLogin(sm, lln)
+			// { session opened or closed }
+		}
+		var dln *DLn
+		dln, d = parseDownload(<-dl)
+		if d == nil {
+			procDown(dm, dln)
+			var ss []string
+			ss = fillSessions(dm, sm, dln.IP)
+			for _, j := range ss {
+				out <- j
+			}
+		}
 	}
-	// { sessions filled ≡ e = nil }
-	if e == nil {
-		e = writeDwns(o, jn.lgi)
+	out <- ""
+}
+
+func procDown(dm map[string][]*DLn, dln *DLn) {
+	if dm[dln.IP] == nil {
+		dm[dln.IP] = make([]*DLn, 0)
 	}
-	// { downloads per user written ≡ e = nil }
+	dm[dln.IP] = append(dm[dln.IP], dln)
+}
+
+func fillSessions(dm map[string][]*DLn, sm map[string][]*Session,
+	ip string) (ds []string) {
+	ds = make([]string, 0)
+	if dm[ip] != nil {
+		for _, l := range sm[ip] {
+			ds = append(ds, writeDownloads(l, dm[ip])...)
+		}
+	}
 	return
+}
+
+func writeDownloads(s *Session, ds []*DLn) (ss []string) {
+	ss = make([]string, 0, len(ds))
+	for _, j := range ds {
+		var b, c bool
+		b, c = s.start.Before(j.Time), s.end.After(j.Time)
+		if b && c && !j.Written {
+			ss = append(ss, downloadToString(s, j))
+			j.Written = true
+		}
+	}
+	return
+}
+
+func downloadToString(j *Session, k *DLn) (s string) {
+	s = fmt.Sprintf(
+		"%s - %s [%s] \"%s %s HTTP/1.0\" 200 %d\n",
+		k.IP, j.user, k.Time.Format(time.RubyDate), k.Method, k.URL,
+		k.Dwn,
+	)
+	return
+}
+
+func procLogin(sm map[string][]*Session, lln *LLn) {
+	if lln.IsLogin() {
+		if sm[lln.IP] == nil {
+			sm[lln.IP] = make([]*Session, 0)
+		} else {
+			var d time.Duration
+			d, _ = time.ParseDuration("-1ms")
+			closeSession(sm[lln.IP][len(sm[lln.IP])-1],
+				lln.Time.Add(d))
+		}
+		sm[lln.IP] = append(sm[lln.IP], &Session{
+			start:  lln.Time,
+			user:   lln.User,
+			closed: false,
+		})
+	} else if lln.IsLogout() {
+		closeSession(sm[lln.IP][len(sm[lln.IP])-1], lln.Time)
+	}
+}
+
+func closeSession(s *Session, t time.Time) {
+	s.end = t
+	s.closed = true
+}
+
+type Syncer interface {
+	Sync() error
+	io.Writer
 }
 
 type DLn struct {
-	IP, URL string
-	Dwn     int
-	Time    time.Time
+	IP, URL, Method string
+	Dwn             int
+	Time            time.Time
+	Written         bool
 }
 
 type Session struct {
 	user       string
 	start, end time.Time
-	dwnls      []*DLn
 	closed     bool
-}
-
-func (s *Session) Belongs(t time.Time) (r bool) {
-	r = s.start.Before(t) && s.end.After(t)
-	return
-}
-
-func (s *Session) AppendDwn(d *DLn) {
-	var i int
-	i = 0
-	for i != len(s.dwnls) && !s.dwnls[i].Time.Equal(d.Time) {
-		i = i + 1
-	}
-	if i == len(s.dwnls) {
-		s.dwnls = append(s.dwnls, d)
-	}
-}
-
-func delimSessions(l io.Reader, lgi map[string][]*Session) (e error) {
-	var ls *bufio.Scanner
-	ls = bufio.NewScanner(l)
-	for ls.Scan() {
-		var ln string
-		ln = ls.Text()
-		var lln *LLn
-		lln, e = parseLogins(ln)
-		if e == nil {
-			procLog(lln, lgi)
-		}
-		// { sessionOpened ∨ sessionClosed ≡ e = nil }
-	}
-	e = ls.Err()
-	if e == bufio.ErrTooLong {
-		e = nil
-	}
-	return
-}
-
-func procLog(lln *LLn, lgi map[string][]*Session) {
-	var ss []*Session
-	var ns *Session
-	var ok bool
-	ss, ok = lgi[lln.IP]
-	if lln.IsLogin() {
-		if !ok {
-			lgi[lln.IP] = make([]*Session, 0)
-		}
-		// { lgi[lln.IP] is initialized }
-		ns = &Session{
-			start: lln.Time,
-			user:  lln.User,
-		}
-		if len(lgi[lln.IP]) != 0 && !lgi[lln.IP][len(lgi[lln.IP])-1].closed {
-			// { a LOGIN from the IP of an unfinished session
-			//   is made }
-			var drt time.Duration
-			drt, _ = time.ParseDuration("-1ms")
-			lgi[lln.IP][len(lgi[lln.IP])-1].end = ns.start.Add(drt)
-			lgi[lln.IP][len(lgi[lln.IP])-1].closed = true
-			// { finished previous session }
-		}
-		lgi[lln.IP] = append(lgi[lln.IP], ns)
-		// { opened new session and closed last session if not }
-	} else if lln.IsLogout() {
-		if ok {
-			var i int
-			for i != len(ss) && (ss[i].user != lln.User ||
-				ss[i].closed) {
-				i++
-			}
-			// { ns is last opened session of lln.User ≡ foundSession}
-			if i != len(ss) {
-				ss[i].end = lln.Time
-				ss[i].closed = true
-			}
-			// { closed lln.User's opened session ≡ foundSession }
-		}
-	}
-}
-
-func fillSessions(d io.Reader, lgi map[string][]*Session) (e error) {
-	var ds *bufio.Scanner
-	ds = bufio.NewScanner(d)
-	for ds.Scan() {
-		var ln string
-		ln = ds.Text()
-		var dln *DLn
-		dln, _ = parseDownloads(ln)
-		var s []*Session
-		var ok bool
-		s, ok = lgi[dln.IP]
-		if ok {
-			var i int
-			i = 0
-			for i != len(s) && !s[i].Belongs(dln.Time) {
-				i = i + 1
-			}
-			if i != len(s) {
-				s[i].AppendDwn(dln)
-			}
-		}
-	}
-	e = ds.Err()
-	if e == bufio.ErrTooLong {
-		e = nil
-	}
-	return
-}
-
-func writeDwns(o io.Writer, lgi map[string][]*Session) (e error) {
-	for _, v := range lgi {
-		for _, j := range v {
-			var bs []byte
-			bs = sessionToBytes(j)
-			_, e = o.Write(bs)
-		}
-	}
-	return
-}
-
-func sessionToBytes(j *Session) (bs []byte) {
-	bs = make([]byte, 0)
-	for _, k := range j.dwnls {
-		var s string
-		s = fmt.Sprintf(
-			"%s - %s [%s] \"GET %s HTTP/1.0\" 200 %d\n",
-			k.IP, j.user, k.Time.Format(time.RubyDate), k.URL, k.Dwn,
-		)
-		bs = append(bs, []byte(s)...)
-	}
-	return
 }
 
 type LLn struct {
@@ -249,7 +197,7 @@ func (l *LLn) IsLogout() (b bool) {
 //  user = word comma comma.
 //  ip = number dot number dot number dot number.
 // }
-func parseLogins(l string) (r *LLn, e error) {
+func parseLogin(l string) (r *LLn, e error) {
 	var i int
 	i, r = 0, new(LLn)
 	if e == nil {
@@ -337,7 +285,8 @@ func parseLogins(l string) (r *LLn, e error) {
 
 func getWord(s string, i int) (r string, k int, e error) {
 	k = i
-	for k != len(s) && (unicode.IsLetter(rune(s[k])) || s[k] == '-' || s[k] == '_') {
+	for k != len(s) && (unicode.IsLetter(rune(s[k])) ||
+		s[k] == '-' || s[k] == '_') {
 		k = k + 1
 	}
 	if k != len(s) && i != k {
@@ -488,9 +437,9 @@ func getTime(l string, i int) (t time.Time, k int, e error) {
 //   line = number '.' number number ip word '/' number size
 //      word url '-' word '/-' word '/' word.
 // }
-func parseDownloads(l string) (r *DLn, e error) {
+func parseDownload(l string) (r *DLn, e error) {
 	var i int
-	r = new(DLn)
+	r = &DLn{Written: false}
 	i = 0
 	r.Time, i, e = getTime(l, i)
 	if e == nil {
@@ -521,7 +470,7 @@ func parseDownloads(l string) (r *DLn, e error) {
 	}
 	if e == nil {
 		i = k
-		i, e = skipWord(l, i)
+		r.Method, i, e = getWord(l, i)
 		// { got Method }
 	}
 	if e == nil {
@@ -531,12 +480,5 @@ func parseDownloads(l string) (r *DLn, e error) {
 		}
 		// { nothing more to parse }
 	}
-	return
-}
-
-func toString(d *DLn, l *LLn) (r string) {
-	//TODO
-	r = fmt.Sprintf("%s %s %s %d %s", time.Now().String(), l.User,
-		l.IP, d.Dwn, d.URL)
 	return
 }

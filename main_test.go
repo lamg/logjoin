@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"github.com/stretchr/testify/require"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +18,7 @@ func TestParseLogins(t *testing.T) {
 	require.NoError(t, e)
 	tm = tm.AddDate(time.Now().Year(), 0, 0)
 	s = "Jun 27 21:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8"
-	lln, e = parseLogins(s)
+	lln, e = parseLogin(s)
 	require.NoError(t, e)
 	require.True(t,
 		lln.Action == "USERLOGIN" &&
@@ -36,12 +34,13 @@ func TestParseDownloads(t *testing.T) {
 	var dln *DLn
 	var e error
 	s = "1499345783.622      0 10.2.41.23 TCP_DENIED/403 4390 GET http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png - HIER_NONE/- text/html"
-	dln, e = parseDownloads(s)
+	dln, e = parseDownload(s)
 	require.NoError(t, e)
 	require.True(t,
 		dln.IP == "10.2.41.23" &&
 			dln.Dwn == 4390 &&
 			dln.URL == "http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png",
+		dln.Method == "GET",
 		dln.Time.Equal(time.Unix(1499345783, 0)),
 		"Got %v", dln,
 	)
@@ -56,7 +55,7 @@ func TestParseDownloads0(t *testing.T) {
 	var i int
 	for i != len(ss)-1 && e == nil {
 		var dl *DLn
-		dl, e = parseDownloads(ss[i])
+		dl, e = parseDownload(ss[i])
 		if e == nil {
 			ds, i = append(ds, dl), i+1
 		}
@@ -67,107 +66,39 @@ func TestParseDownloads0(t *testing.T) {
 	}*/
 }
 
-func TestSessionToBytes(t *testing.T) {
-	var ns *Session
-	var w time.Time
-	w, _ = time.Parse(time.UnixDate,
-		"Mon Jan 2 15:04:05 CDT 2006")
-	var d time.Duration
-	d, _ = time.ParseDuration("30s")
-	ns = &Session{
-		user:  "lamg",
-		start: w,
-		end:   w.Add(d).Add(d).Add(d),
-		dwnls: []*DLn{
-			&DLn{
-				IP:   "10.2.23.1",
-				URL:  "https://google.com.cu",
-				Dwn:  4020,
-				Time: w.Add(d),
-			},
-			&DLn{
-				IP:   "10.2.23.1",
-				URL:  "https://en.wikipedia.com",
-				Dwn:  2030,
-				Time: w.Add(d).Add(d),
-			},
-		},
-	}
-	var bs []byte
-	bs = sessionToBytes(ns)
-	var exLns []string
-	exLns = []string{"10.2.23.1 - lamg [Mon Jan 02 15:04:35 -0400 2006] \"GET https://google.com.cu HTTP/1.0\" 200 4020",
-		"10.2.23.1 - lamg [Mon Jan 02 15:05:05 -0400 2006] \"GET https://en.wikipedia.com HTTP/1.0\" 200 2030",
-	}
-	var br io.Reader
-	br = bytes.NewReader(bs)
-	var sc *bufio.Scanner
-	sc = bufio.NewScanner(br)
-	var i int
-	i = 0
-	for sc.Scan() {
-		require.True(t, sc.Text() == exLns[i], "%s ≠ %s",
-			sc.Text(), exLns[i])
-		i = i + 1
-	}
-	require.True(t, i == len(exLns))
-}
-
-func TestDelimSessions(t *testing.T) {
-	var lgi map[string][]*Session
-	lgi = make(map[string][]*Session)
-	var bf *bytes.Buffer
-	bf = bytes.NewBufferString(l)
-	var e error
-	e = delimSessions(bf, lgi)
-	require.NoError(t, e)
-	require.True(t, len(lgi) > 0)
-	/*for k, v := range lgi {
-		t.Log(k)
-		for _, j := range v {
-			t.Logf("user: %s  start: %s end: %s", j.user, j.start,
-				j.end)
+func TestLogProc(t *testing.T) {
+	var lb, db *bytes.Buffer
+	lb, db = bytes.NewBufferString(l), bytes.NewBufferString(d)
+	var lc, dc, out chan string
+	lc, dc, out = make(chan string), make(chan string),
+		make(chan string)
+	go func() {
+		var e, d error
+		for e == nil || d == nil {
+			var ls, ds string
+			ls, e = lb.ReadString('\n')
+			lc <- ls
+			ds, d = db.ReadString('\n')
+			dc <- ds
 		}
-	}*/
+	}()
+	go logProc(lc, dc, out)
+	var b bool
+	b = true
+	for b {
+		var os string
+		os = <-out
+		t.Log(os)
+		b = os != ""
+	}
 }
 
-func TestFillSessions(t *testing.T) {
-	var e error
-	var lgi map[string][]*Session
-	lgi = make(map[string][]*Session)
-	var bf *bytes.Buffer
-	bf = bytes.NewBufferString(l)
-	e = delimSessions(bf, lgi)
-	require.NoError(t, e)
-	var bd *bytes.Buffer
-	bd = bytes.NewBufferString(d)
-	e = fillSessions(bd, lgi)
-	require.NoError(t, e)
-	var ss *Session
-	ss = lgi["10.2.9.8"][0]
-	require.True(t, len(ss.dwnls) > 0,
-		"user: %s start: %s end: %s ds: %v",
-		ss.user,
-		ss.start.String(),
-		ss.end.String(),
-		ss.dwnls,
-	)
-	/*for _, j := range ss.dwnls {
-		t.Logf("%s %s", j.IP, j.Time.String())
-	}*/
-}
-
-func TestJoinLns(t *testing.T) {
-	var lr, dr io.Reader
-	lr, dr = strings.NewReader(l), strings.NewReader(d)
-	var ow *bytes.Buffer
-	var s string
-	ow = bytes.NewBufferString(s)
-	var e error
-	e = joinLns(lr, dr, ow)
-	require.NoError(t, e)
-	require.True(t, ow.Len() > 0)
-	t.Log(ow.String())
+func TestPrintTimes(t *testing.T) {
+	var t0, t1 time.Time
+	t1 = time.Unix(1499717148, 206*1000000)
+	t0 = time.Unix(1499659201, 020*1000000)
+	t.Logf("t0: %s", t0.String())
+	t.Logf("t1: %s", t1.String())
 }
 
 var (
