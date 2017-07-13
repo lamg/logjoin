@@ -72,34 +72,45 @@ func TestLogProc(t *testing.T) {
 	var lc, dc, out chan string
 	lc, dc, out = make(chan string), make(chan string),
 		make(chan string)
-	go func() {
-		var e, d error
-		for e == nil || d == nil {
-			var ls, ds string
-			ls, e = lb.ReadString('\n')
-			lc <- ls
-			ds, d = db.ReadString('\n')
-			dc <- ds
-		}
-	}()
+	go buffChan(lb, lc)
+	go buffChan(db, dc)
 	go logProc(lc, dc, out)
 	var b bool
-	b = true
+	var c int
+	c = 0
+	_, b = <-out
 	for b {
-		var os string
-		os = <-out
-		t.Log(os)
-		b = os != ""
+		c = c + 1
+		_, b = <-out
+	}
+	require.True(t, c == 9, "%d ≠ 9", c)
+}
+
+func buffChan(bf *bytes.Buffer, cs chan<- string) {
+	var e error
+	for e == nil {
+		var ls string
+		ls, e = bf.ReadString('\n')
+		if e == nil {
+			cs <- ls
+		} else {
+			close(cs)
+		}
 	}
 }
 
-func TestPrintTimes(t *testing.T) {
-	var t0, t1 time.Time
-	t1 = time.Unix(1499717148, 206*1000000)
-	t0 = time.Unix(1499659201, 020*1000000)
-	t.Logf("t0: %s", t0.String())
-	t.Logf("t1: %s", t1.String())
-}
+// func TestPrintTimes(t *testing.T) {
+// 	var t0, t1, t2 time.Time
+// 	t1 = time.Unix(1499717148, 206*1000000)
+// 	t0 = time.Unix(1499659201, 020*1000000)
+// 	t.Logf("t0: %s", t0.String())
+// 	t.Logf("t1: %s", t1.String())
+// 	t2, _ = time.ParseInLocation(time.Stamp, "Jun 28 07:20:48",
+// 		time.Local)
+// 	t2 = t2.AddDate(2017, 0, 0)
+// 	t.Logf("%d", t2.Unix())
+
+// }
 
 var (
 	l = `Jul 06 06:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8

@@ -36,55 +36,70 @@ func main() {
 	}
 	if e == nil {
 		var ls, ds, oc chan string
-		ls, ds = stringCh(lt.Lines, dt.Lines)
+		ls, ds, oc = make(chan string), make(chan string),
+			make(chan string)
+		go stringCh(lt.Lines, ls)
+		go stringCh(dt.Lines, ds)
 		go logProc(ls, ds, oc)
-		for {
-			o.Write([]byte(<-oc))
+		var b bool
+		b = true
+		for b {
+			var s string
+			s, b = <-oc
+			_, e = o.Write([]byte(s))
 			o.Sync()
+			b = e == nil && b
 		}
+		o.Close()
 	}
 }
 
-func stringCh(ll, dl chan *tail.Line) (ls, ds chan string) {
-	ls, ds = make(chan string), make(chan string)
-	go func() {
-		var e, d error
-		for e == nil || d == nil {
-			var s, t *tail.Line
-			s, t = (<-ll), (<-dl)
-			e, d = s.Err, t.Err
+func stringCh(ll <-chan *tail.Line, ls chan<- string) {
+	var b bool
+	b = true
+	for b {
+		var s *tail.Line
+		s, b = <-ll
+		if b {
 			ls <- s.Text
-			ds <- t.Text
 		}
-	}()
+	}
+	close(ls)
 	return
 }
 
-func logProc(ll, dl, out chan string) {
+func logProc(ll, dl <-chan string, out chan<- string) {
 	var e, d error
+	var a, b bool
 	var sm map[string][]*Session
 	var dm map[string][]*DLn
-	sm, dm = make(map[string][]*Session),
-		make(map[string][]*DLn)
-	for e == nil || d == nil {
+	sm, dm, a, b = make(map[string][]*Session),
+		make(map[string][]*DLn),
+		true, true
+	for a || b {
 		var lln *LLn
-		lln, e = parseLogin(<-ll)
-		if e == nil {
+		var s string
+		s, a = (<-ll)
+		if a {
+			lln, e = parseLogin(s)
+		}
+		if a && e == nil {
 			procLogin(sm, lln)
 			// { session opened or closed }
 		}
 		var dln *DLn
-		dln, d = parseDownload(<-dl)
-		if d == nil {
+		s, b = <-dl
+		if b {
+			dln, d = parseDownload(s)
+		}
+		if b && d == nil {
 			procDown(dm, dln)
-			var ss []string
-			ss = fillSessions(dm, sm, dln.IP)
-			for _, j := range ss {
-				out <- j
-			}
+		}
+		for k, _ := range sm {
+			fillSessions(dm, sm, k, out)
 		}
 	}
-	out <- ""
+	close(out)
 }
 
 func procDown(dm map[string][]*DLn, dln *DLn) {
@@ -95,24 +110,25 @@ func procDown(dm map[string][]*DLn, dln *DLn) {
 }
 
 func fillSessions(dm map[string][]*DLn, sm map[string][]*Session,
-	ip string) (ds []string) {
-	ds = make([]string, 0)
+	ip string, out chan<- string) {
 	if dm[ip] != nil {
 		for _, l := range sm[ip] {
-			ds = append(ds, writeDownloads(l, dm[ip])...)
+			dm[ip] = writeDownloads(l, dm[ip], out)
 		}
 	}
 	return
 }
 
-func writeDownloads(s *Session, ds []*DLn) (ss []string) {
-	ss = make([]string, 0, len(ds))
+func writeDownloads(s *Session, ds []*DLn,
+	out chan<- string) (rs []*DLn) {
+	rs = make([]*DLn, 0, len(ds))
 	for _, j := range ds {
 		var b, c bool
 		b, c = s.start.Before(j.Time), s.end.After(j.Time)
-		if b && c && !j.Written {
-			ss = append(ss, downloadToString(s, j))
-			j.Written = true
+		if b && c {
+			out <- downloadToString(s, j)
+		} else {
+			rs = append(rs, j)
 		}
 	}
 	return
