@@ -142,8 +142,6 @@ func writeDownloads(s *Session, ds []*DLn,
 		var b, c bool
 		b, c = s.start.Before(j.Time), s.end.After(j.Time)
 		if b && (!s.closed || c) {
-			s.start = j.Time // making sure this download
-			// will not be written again
 			out <- downloadToString(s, j)
 		} else {
 			rs = append(rs, j)
