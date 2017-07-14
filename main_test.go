@@ -18,7 +18,7 @@ func TestParseLogins(t *testing.T) {
 	require.NoError(t, e)
 	tm = tm.AddDate(time.Now().Year(), 0, 0)
 	s = "Jun 27 21:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8"
-	lln, e = parseLogin(s)
+	lln, e = parseUsrEvt(s)
 	require.NoError(t, e)
 	require.True(t,
 		lln.Action == "USERLOGIN" &&
@@ -101,8 +101,8 @@ func buffChan(bf *bytes.Buffer, cs chan<- string) {
 
 func TestPrintTimes(t *testing.T) {
 	var t0, t1, t2 time.Time
-	t1 = time.Unix(1499717148, 206*1000000)
 	t0 = time.Unix(1499659201, 020*1000000)
+	t1 = time.Unix(1499389800, 598*1000000)
 	t.Logf("t0: %s", t0.String())
 	t.Logf("t1: %s", t1.String())
 	t2, _ = time.ParseInLocation(time.Stamp, "Jul 06 21:10:00",
@@ -116,7 +116,8 @@ var (
 Jul 06 21:06:13 proxy-profesores logportalauth[48372]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8
 Jul 06 21:09:38 proxy-profesores logportalauth[25822]: Zone: proxy_profes - Reconfiguring captive portal(Proxy_Profes).
 Jul 06 21:09:57 proxy-profesores logportalauth[47811]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
-Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8`
+Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8
+`
 	d = `1499336852.856      1 212.237.54.71 TAG_NONE/400 4007 GET / - HIER_NONE/- text/html
 1499344036.349      0 10.2.9.8 TAG_NONE/400 4004 GET / - HIER_NONE/- text/html
 1499344036.376      1 10.2.9.8 TCP_DENIED/403 4395 GET http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png - HIER_NONE/- text/html
