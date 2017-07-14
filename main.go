@@ -16,9 +16,9 @@ import (
 
 func main() {
 	//TODO
-	// matar procesos en squid del usuario que hizo DISCONNECT
-	// sacar las descargas procesadas y las sesiones que ya
-	// no puedan tener mas descargas, para liberar memoria
+	// delete sessions with no more downloads
+	// these can be determined by the last download's date
+	// since downloads appear in chronological order
 	var lgn, dwn, out string
 	flag.StringVar(&lgn, "l", "", "portalauth.log file path")
 	flag.StringVar(&dwn, "d", "", "access.log file path")
@@ -93,7 +93,7 @@ func logProc(ll, dl <-chan string, out chan<- string) {
 			dln, d = parseDownload(s)
 		}
 		if b && d == nil {
-			procDown(dm, dln)
+			procDown(dm, sm, dln)
 		}
 		for k, _ := range sm {
 			fillSessions(dm, sm, k, out)
@@ -102,11 +102,26 @@ func logProc(ll, dl <-chan string, out chan<- string) {
 	close(out)
 }
 
-func procDown(dm map[string][]*DLn, dln *DLn) {
+func procDown(dm map[string][]*DLn, sm map[string][]*Session,
+	dln *DLn) {
 	if dm[dln.IP] == nil {
 		dm[dln.IP] = make([]*DLn, 0)
 	}
 	dm[dln.IP] = append(dm[dln.IP], dln)
+	if sm[dln.IP] != nil {
+		var ss []*Session
+		ss = make([]*Session, 0, len(sm[dln.IP]))
+		for _, j := range sm[dln.IP] {
+			if !j.closed || j.end.After(dln.Time) {
+				ss = append(ss, j)
+			}
+		}
+		// { ss contains sessions for which a new download
+		//   can appear. Since downloads come in chronological
+		//   order, every closed session with end before dln.Time
+		//   in dln.IP cannot have more downloads }
+		sm[dln.IP] = ss
+	}
 }
 
 func fillSessions(dm map[string][]*DLn, sm map[string][]*Session,
@@ -125,7 +140,7 @@ func writeDownloads(s *Session, ds []*DLn,
 	for _, j := range ds {
 		var b, c bool
 		b, c = s.start.Before(j.Time), s.end.After(j.Time)
-		if b && c {
+		if b && (!s.closed || c) {
 			out <- downloadToString(s, j)
 		} else {
 			rs = append(rs, j)

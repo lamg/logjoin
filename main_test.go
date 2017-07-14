@@ -83,7 +83,7 @@ func TestLogProc(t *testing.T) {
 		c = c + 1
 		_, b = <-out
 	}
-	require.True(t, c == 9, "%d ≠ 9", c)
+	require.True(t, c == 10, "%d ≠ 10", c)
 }
 
 func buffChan(bf *bytes.Buffer, cs chan<- string) {
@@ -99,18 +99,17 @@ func buffChan(bf *bytes.Buffer, cs chan<- string) {
 	}
 }
 
-// func TestPrintTimes(t *testing.T) {
-// 	var t0, t1, t2 time.Time
-// 	t1 = time.Unix(1499717148, 206*1000000)
-// 	t0 = time.Unix(1499659201, 020*1000000)
-// 	t.Logf("t0: %s", t0.String())
-// 	t.Logf("t1: %s", t1.String())
-// 	t2, _ = time.ParseInLocation(time.Stamp, "Jun 28 07:20:48",
-// 		time.Local)
-// 	t2 = t2.AddDate(2017, 0, 0)
-// 	t.Logf("%d", t2.Unix())
-
-// }
+func TestPrintTimes(t *testing.T) {
+	var t0, t1, t2 time.Time
+	t1 = time.Unix(1499717148, 206*1000000)
+	t0 = time.Unix(1499659201, 020*1000000)
+	t.Logf("t0: %s", t0.String())
+	t.Logf("t1: %s", t1.String())
+	t2, _ = time.ParseInLocation(time.Stamp, "Jul 06 21:10:00",
+		time.Local)
+	t2 = t2.AddDate(2017, 0, 0)
+	t.Logf("%d", t2.Unix())
+}
 
 var (
 	l = `Jul 06 06:05:41 proxy-profesores logportalauth[11593]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
@@ -137,5 +136,6 @@ Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISC
 1499362632.070      0 10.2.132.12 TAG_NONE/400 4027 GET /favicon.ico - HIER_NONE/- text/html
 1499362632.087      0 10.2.132.12 TAG_NONE/400 4027 GET /favicon.ico - HIER_NONE/- text/html
 1499362634.598      0 10.2.132.12 TAG_NONE/400 4005 GET / - HIER_NONE/- text/html
+1499389800.598      1 10.2.9.8 TCP_DENIED/403 4400 GET http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png - HIER_NONE/- text/html
 `
 )
