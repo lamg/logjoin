@@ -180,7 +180,7 @@ func writeDownloads(s *Session, ds []*DLn,
 }
 
 func closeSession(s []*Session, t time.Time) {
-	if len(s) != 0 {
+	if len(s) != 0 && !s[len(s)-1].closed {
 		s[len(s)-1].end = t
 		s[len(s)-1].closed = true
 	}
