@@ -127,8 +127,7 @@ func procUsrEvt(sm map[string][]*Session, lln *LLn) {
 		} else {
 			var d time.Duration
 			d, _ = time.ParseDuration("-1ms")
-			closeSession(sm[lln.IP][len(sm[lln.IP])-1],
-				lln.Time.Add(d))
+			closeSession(sm[lln.IP], lln.Time.Add(d))
 		}
 		sm[lln.IP] = append(sm[lln.IP], &Session{
 			start:  lln.Time,
@@ -136,7 +135,7 @@ func procUsrEvt(sm map[string][]*Session, lln *LLn) {
 			closed: false,
 		})
 	} else if lln.IsLogout() {
-		closeSession(sm[lln.IP][len(sm[lln.IP])-1], lln.Time)
+		closeSession(sm[lln.IP], lln.Time)
 	}
 }
 
@@ -180,9 +179,11 @@ func writeDownloads(s *Session, ds []*DLn,
 	return
 }
 
-func closeSession(s *Session, t time.Time) {
-	s.end = t
-	s.closed = true
+func closeSession(s []*Session, t time.Time) {
+	if len(s) != 0 {
+		s[len(s)-1].end = t
+		s[len(s)-1].closed = true
+	}
 }
 
 func addDown(dm map[string][]*DLn, sm map[string][]*Session,
