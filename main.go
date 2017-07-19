@@ -121,9 +121,6 @@ func logProc(ll, dl <-chan string, out chan<- string) {
 }
 
 func procUsrEvt(sm map[string][]*Session, lln *LLn) {
-	if lln.User == "cesar.bretana" && sm[lln.IP] != nil {
-		println(len(sm[lln.IP]))
-	}
 	if lln.IsLogin() {
 		if sm[lln.IP] == nil {
 			sm[lln.IP] = make([]*Session, 0)

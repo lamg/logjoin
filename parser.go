@@ -181,13 +181,6 @@ func parseDownload(l string) (r *DLn, e error) {
 		}
 		// { nothing more to parse }
 	}
-	if r.IP == "10.2.9.17" {
-		println(r.Time.String())
-	}
-	if strings.Contains(l, "10.2.9.17") {
-		println("contains")
-	}
-	println(l)
 	return
 }
 
