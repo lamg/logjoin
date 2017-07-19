@@ -101,7 +101,8 @@ func buffChan(bf *bytes.Buffer, cs chan<- string) {
 
 func TestPrintTimes(t *testing.T) {
 	var t0, t1, t2 time.Time
-	t0 = time.Unix(1499659201, 020*1000000)
+	//1500488475
+	t0 = time.Unix(1500488475, 020*1000000)
 	t1 = time.Unix(1499389800, 598*1000000)
 	t.Logf("t0: %s", t0.String())
 	t.Logf("t1: %s", t1.String())
@@ -117,6 +118,11 @@ Jul 06 21:06:13 proxy-profesores logportalauth[48372]: Zone: proxy_profes - DISC
 Jul 06 21:09:38 proxy-profesores logportalauth[25822]: Zone: proxy_profes - Reconfiguring captive portal(Proxy_Profes).
 Jul 06 21:09:57 proxy-profesores logportalauth[47811]: Zone: proxy_profes - USER LOGIN: ymtnez, , 10.2.9.8
 Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISCONNECT: ymtnez, , 10.2.9.8
+Jul 19 14:18:19 proxy-profesores logportalauth[85436]: Zone: proxy_profes - USER LOGIN: cesar.bretana, , 10.2.9.17
+Jul 19 14:18:32 proxy-profesores logportalauth[93376]: Zone: proxy_profes - DISCONNECT: cesar.bretana, , 10.2.9.17
+Jul 19 14:20:47 proxy-profesores logportalauth[56267]: Zone: proxy_profes - USER LOGIN: cesar.bretana, , 10.2.9.17
+Jul 19 14:22:51 proxy-profesores logportalauth[26784]: Zone: proxy_profes - USER LOGIN: mjr, , 10.2.71.172
+Jul 19 14:23:24 proxy-profesores logportalauth[26784]: Zone: proxy_profes - DISCONNECT: cesar.bretana, , 10.2.9.17
 `
 	d = `1499336852.856      1 212.237.54.71 TAG_NONE/400 4007 GET / - HIER_NONE/- text/html
 1499344036.349      0 10.2.9.8 TAG_NONE/400 4004 GET / - HIER_NONE/- text/html
@@ -138,5 +144,8 @@ Jul 06 21:10:13 proxy-profesores logportalauth[73868]: Zone: proxy_profes - DISC
 1499362632.087      0 10.2.132.12 TAG_NONE/400 4027 GET /favicon.ico - HIER_NONE/- text/html
 1499362634.598      0 10.2.132.12 TAG_NONE/400 4005 GET / - HIER_NONE/- text/html
 1499389800.598      1 10.2.9.8 TCP_DENIED/403 4400 GET http://proxy-profesores.upr.edu.cu/squid-internal-static/icons/SN.png - HIER_NONE/- text/html
+1500488475.616    841 10.2.9.17 TCP_MISS/200 1193 GET http://mobile.yandex.net/search/atomsearch/vb_extension? - HIER_DIRECT/77.88.21.110 application/json
+1500488477.585   2411 10.2.9.17 TCP_MISS/301 426 GET http://facebook.com/ - HIER_DIRECT/31.13.76.68 text/html
+1500488477.612    385 10.2.9.17 TCP_MISS/200 635 GET http://mobile.yandex.net/search/atomsearch/vb_extension? - HIER_DIRECT/77.88.21.110 application/json
 `
 )

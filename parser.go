@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -180,13 +181,20 @@ func parseDownload(l string) (r *DLn, e error) {
 		}
 		// { nothing more to parse }
 	}
+	if r.IP == "10.2.9.17" {
+		println(r.Time.String())
+	}
+	if strings.Contains(l, "10.2.9.17") {
+		println("contains")
+	}
+	println(l)
 	return
 }
 
 func getWord(s string, i int) (r string, k int, e error) {
 	k = i
 	for k != len(s) && (unicode.IsLetter(rune(s[k])) ||
-		s[k] == '-' || s[k] == '_') {
+		s[k] == '-' || s[k] == '_' || s[k] == '.') {
 		k = k + 1
 	}
 	if k != len(s) && i != k {
