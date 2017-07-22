@@ -83,7 +83,7 @@ func TestLogProc(t *testing.T) {
 		c = c + 1
 		_, b = <-out
 	}
-	require.True(t, c == 10, "%d ≠ 10", c)
+	require.True(t, c == 13, "%d ≠ 13", c)
 }
 
 func buffChan(bf *bytes.Buffer, cs chan<- string) {

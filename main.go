@@ -21,9 +21,10 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
-	"github.com/hpcloud/tail"
+	"log"
 	"os"
 	"time"
 )
@@ -34,22 +35,17 @@ func main() {
 	flag.StringVar(&dwn, "d", "", "Squid access.log file path")
 	flag.StringVar(&out, "o", "", "Output log file path (Apache log format). This file contains users associated to their respective downolads")
 	flag.Parse()
-	var lt, dt *tail.Tail
 	var e error
-	lt, e = tail.TailFile(lgn, tail.Config{Follow: true})
-	if e == nil {
-		dt, e = tail.TailFile(dwn, tail.Config{Follow: true})
-	}
 	var o *os.File
-	if e == nil {
-		o, e = os.Create(out)
-	}
+	o, e = os.Create(out)
 	if e == nil {
 		var ls, ds, oc chan string
-		ls, ds, oc = make(chan string), make(chan string),
+		ls, ds, oc =
+			make(chan string),
+			make(chan string),
 			make(chan string)
-		go stringCh(lt.Lines, ls)
-		go stringCh(dt.Lines, ds)
+		go stringCh(lgn, ls)
+		go stringCh(dwn, ds)
 		go logProc(ls, ds, oc)
 		var b bool
 		b = true
@@ -58,22 +54,29 @@ func main() {
 			var s string
 			s, b = <-oc
 			_, e = o.Write([]byte(s))
-			o.Sync()
 			b = e == nil && b
 		}
 		o.Close()
 	}
+	if e != nil {
+		log.Fatal(e.Error())
+	}
+	// { log written }
 }
 
-func stringCh(ll <-chan *tail.Line, ls chan<- string) {
+func stringCh(f string, ls chan<- string) {
+	var r *os.File
+	var e error
+	r, e = os.Open(f)
+	var sc *bufio.Scanner
+	if e == nil {
+		sc = bufio.NewScanner(r)
+	}
 	var b bool
-	b = true
+	b = e == nil && sc.Scan()
 	for b {
-		var s *tail.Line
-		s, b = <-ll
-		if b {
-			ls <- s.Text
-		}
+		ls <- sc.Text()
+		b = sc.Scan()
 	}
 	close(ls)
 	return
