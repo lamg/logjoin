@@ -33,7 +33,7 @@ func main() {
 	var lgn, dwn, out string
 	flag.StringVar(&lgn, "l", "", "Squid portalauth.log file path")
 	flag.StringVar(&dwn, "d", "", "Squid access.log file path")
-	flag.StringVar(&out, "o", "", "Output log file path (Apache log format). This file contains users associated to their respective downolads")
+	flag.StringVar(&out, "o", "", "Output log file path (Apache log format)")
 	flag.Parse()
 	var e error
 	var o *os.File
