@@ -87,9 +87,14 @@ func stringCh(f string, ls chan<- string) {
 //   dl: channel of downloads
 //   out: channel of downloads associated to users by
 //        IP and time and other fields }
+//
+// This procedure is the substantial part of the program,
+// everything else is serving to it.
 func logProc(ll, dl <-chan string, out chan<- string) {
 	var e, d error
 	var a, b bool
+	// a: channel of portalauth.log lines (ll) is opened
+	// b: channel of access.log lines (dl) is opened
 	var sm map[string][]*Session
 	// { sm contains IPs associated to user sessions }
 	var dm map[string][]*DLn
@@ -106,7 +111,7 @@ func logProc(ll, dl <-chan string, out chan<- string) {
 		}
 		if a && e == nil {
 			procUsrEvt(sm, lln)
-			// { session opened or closed }
+			// { session activity registered (open or close) }
 		}
 		var dln *DLn
 		s, b = <-dl
@@ -115,10 +120,15 @@ func logProc(ll, dl <-chan string, out chan<- string) {
 		}
 		if b && d == nil {
 			addDown(dm, sm, dln)
+			// { download registered }
 		}
 		for k, _ := range sm {
 			sendDwnAndClean(dm, sm, k, out)
 		}
+		// For every IP, its downloads with user names
+		// included are written to the out channel. Old
+		// sessions and downloads are deleted from the
+		// dictionaries.
 	}
 	close(out)
 }
