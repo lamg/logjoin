@@ -30,12 +30,30 @@ import (
 )
 
 func main() {
-	var lgn, dwn, out string
+	var lgn, dwn, out, logF string
 	flag.StringVar(&lgn, "l", "", "Squid portalauth.log file path")
 	flag.StringVar(&dwn, "d", "", "Squid access.log file path")
 	flag.StringVar(&out, "o", "", "Output log file path (Apache log format)")
+	flag.StringVar(&logF, "g", "logjoin.log", "Logjoin's log file")
 	flag.Parse()
 	var e error
+	var w *os.File
+	w, e = os.Create(logF)
+	for e == nil {
+		li := log.New(w, "", log.LstdFlags)
+		e = logJoin(lgn, dwn, out)
+		if e != nil {
+			li.Print(e.Error())
+			e = nil
+		} else {
+			log.Print("OK")
+		}
+		// { log written }
+		time.Sleep(5 * time.Minute)
+	}
+}
+
+func logJoin(lgn, dwn, out string) (e error) {
 	var o *os.File
 	o, e = os.Create(out)
 	if e == nil {
@@ -58,10 +76,7 @@ func main() {
 		}
 		o.Close()
 	}
-	if e != nil {
-		log.Fatal(e.Error())
-	}
-	// { log written }
+	return
 }
 
 func stringCh(f string, ls chan<- string) {
